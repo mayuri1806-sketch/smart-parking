@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Smart Parking Slot Allocator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🅿️</text></svg>">
+<style>
+:root{--bg:#eef1f4;--panel:#fff;--ink:#14202b;--mute:#5b6b7a;--line:#cfd7de;--acc:#0b5fa5;--free:#d7efe0;--busy:#f3d6d6;--hit:#ffe08a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10171e;--panel:#18222c;--ink:#e8eef3;--mute:#93a3b2;--line:#2b3947;--acc:#5aa9ec;--free:#1d4030;--busy:#4a2626;--hit:#7a6212}}
+:root[data-theme="dark"]{--bg:#10171e;--panel:#18222c;--ink:#e8eef3;--mute:#93a3b2;--line:#2b3947;--acc:#5aa9ec;--free:#1d4030;--busy:#4a2626;--hit:#7a6212}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Trebuchet MS","Segoe UI",sans-serif}
+h1,h2{font-family:Georgia,"Times New Roman",serif;margin:0 0 .5rem}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:var(--panel);border-bottom:2px solid var(--acc)}
+main{max-width:980px;margin:0 auto;padding:16px;display:grid;gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+label{display:grid;gap:4px;font-size:14px;color:var(--mute)}
+input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+button{background:var(--acc);color:#fff;border-color:var(--acc);cursor:pointer}
+button.ghost{background:transparent;color:var(--acc)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--hit);outline-offset:1px}
+#auth{max-width:360px;margin:8vh auto}
+#auth form,.stack{display:grid;gap:10px}
+.err{color:#b3261e;min-height:1.4em;margin:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+.slot{border:1px solid var(--line);border-radius:4px;padding:6px;font-size:13px;background:var(--free)}
+.slot.busy{background:var(--busy)}
+.slot.hit{outline:3px solid var(--hit);background:var(--hit);color:var(--ink)}
+.slot b{font-size:16px}
+ol.trace{margin:0;padding-left:1.4rem;max-height:340px;overflow:auto}
+ol.trace li{padding:2px 0;border-bottom:1px dashed var(--line)}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+td,th{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+[hidden]{display:none!important}
+.mapwrap{overflow-x:auto}.mapwrap svg{width:100%;min-width:640px;height:auto;display:block}
+.m-road{fill:#6b7885}.m-free{fill:var(--free);stroke:var(--line)}.m-busy{fill:var(--busy);stroke:var(--line)}.m-hit{fill:var(--hit);stroke:var(--acc);stroke-width:3}
+.t{fill:var(--ink);font-weight:700;font-size:14px}.sm{fill:var(--ink);font-size:12px}
+.ticket{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.ticket .big{font-size:56px;line-height:1}
+.plate{display:inline-block;border:2px solid var(--ink);border-radius:4px;padding:2px 10px;font-weight:700;letter-spacing:.08em;background:#fff;color:#14202b}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mute);margin-top:8px}
+.notice{padding:10px;border-left:4px solid var(--acc);background:var(--bg);border-radius:4px}
+.maplinks{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.badge{display:inline-block;padding:2px 7px;border-radius:12px;background:var(--hit);font-size:12px}
+#resetBox{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div id="auth" class="card">
+  <h1>Smart Parking Slot Allocator</h1>
+  <p style="color:var(--mute)">Sign in to request a slot, or create an account.</p>
+  <form id="authForm">
+    <label>Username<input id="u" required autocomplete="username"></label>
+    <label>Password<input id="p" type="password" required minlength="6" autocomplete="current-password"></label>
+    <p class="err" id="authErr" role="alert"></p>
+    <div class="row"><button type="submit">Log in</button><button type="button" class="ghost" id="regBtn">Create account</button><button type="button" class="ghost" id="forgotBtn">Forgot password?</button></div>
+  </form>
+  <div id="resetBox" hidden>
+    <strong>Reset password</strong>
+    <p style="color:var(--mute);font-size:13px">Demo mode: this app stores accounts in your browser, so no email service is connected.</p>
+    <form id="resetForm">
+      <label>Username<input id="resetUser" required autocomplete="username"></label>
+      <label>New password<input id="resetPw" type="password" required minlength="6" autocomplete="new-password"></label>
+      <label>Confirm password<input id="resetPw2" type="password" required minlength="6" autocomplete="new-password"></label>
+      <div class="row"><button type="submit">Reset password</button><button type="button" class="ghost" id="cancelReset">Cancel</button></div>
+    </form>
+  </div>
+</div>
+
+<div id="app" hidden>
+<header><h1 style="margin:0;font-size:20px">Parking slot allocator</h1><div class="row" style="align-items:center"><span id="who"></span><button class="ghost" id="out">Log out</button></div></header>
+<main>
+  <section class="card">
+    <h2 id="hello">Request a slot</h2>
+    <div class="row">
+      <label>Vehicle number<input id="plate" placeholder="TS09AB1234" maxlength="12" style="text-transform:uppercase;width:140px"></label>
+      <label>Vehicle type<select id="size"><option value="small">Bike / small (🏍️)</option><option value="medium">Car / medium (🚗)</option><option value="large">Truck / large (🚚)</option></select></label>
+      <span id="vicon" style="font-size:36px" aria-hidden="true">🏍️</span>
+      <label>Algorithm<select id="algo"><option value="greedy">Greedy</option><option value="pq">Priority queue</option><option value="bs">Binary search</option></select></label>
+      <button id="go">Allocate slot</button>
+      <button class="ghost" id="cmp">Compare all</button>
+      <button class="ghost" id="rel">Free all slots</button>
+    </div>
+    <p class="err" id="msg" role="status" style="color:var(--ink)"></p>
+  </section>
+  <section class="card" id="ticket" hidden></section>
+
+  <section class="card">
+    <h2>Book a slot for later</h2>
+    <div class="row">
+      <label>Parking location / locality<input id="bookLocation" placeholder="e.g. Gachibowli, Hyderabad" style="min-width:260px" required></label>
+      <button type="button" class="ghost" id="locationMapBtn">Find location on Google Maps</button>
+      <label>Date<input id="bookDate" type="date"></label>
+      <label>Time<input id="bookTime" type="time" value="10:00"></label>
+      <label>Vehicle number<input id="bookPlate" placeholder="TS09AB1234" maxlength="12" style="text-transform:uppercase;width:140px"></label>
+      <label>Vehicle type<select id="bookSize"><option value="small">Bike / small (🏍️)</option><option value="medium">Car / medium (🚗)</option><option value="large">Truck / large (🚚)</option></select></label>
+      <button id="bookBtn">Reserve nearest slot</button>
+    </div>
+    <p class="err" id="bookMsg" role="status" style="color:var(--ink)"></p>
+    <div class="wrap"><table><thead><tr><th>Location</th><th>Date</th><th>Time</th><th>Vehicle</th><th>Slot</th><th>Status</th><th></th></tr></thead><tbody id="bookings"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Google Maps</h2>
+    <p class="notice">Use Google Maps for live traffic, directions, parking locations, and nearby places. These buttons open Google Maps in a new tab.</p>
+    <div class="row">
+      <label>Place or location<input id="placeSearch" placeholder="e.g. airport, mall, hospital" style="min-width:240px"></label>
+      <button id="placeBtn">Find place</button>
+      <button class="ghost" id="trafficBtn">Live traffic map</button>
+      <button class="ghost" id="nearbyBtn">Nearby parking</button>
+    </div>
+    <div class="maplinks" id="mapLinks"></div>
+  </section>
+
+  <section class="card"><h2>Reasoning trace</h2><ol class="trace" id="trace"><li>Choose a size and algorithm, then press Allocate slot.</li></ol></section>
+  <section class="card"><h2>Parking lot map</h2><div class="mapwrap" id="lot"></div>
+    <div class="legend"><span>🟩 Free</span><span>🟥 Taken</span><span>🟨 Your allocation</span><span>🚪 Entrance on the left, distance in metres</span></div></section>
+  <section class="card"><h2>Parked vehicles</h2><div class="wrap"><table><thead><tr><th>Vehicle</th><th>Number</th><th>Slot</th><th>Driver</th><th></th></tr></thead><tbody id="parked"></tbody></table></div></section>
+  <section class="card" id="admin" hidden>
+    <h2>Admin: manage slots</h2>
+    <div class="row">
+      <label>Slot ID<input id="aid" size="6" placeholder="A9"></label>
+      <label>Size<select id="asz"><option>small</option><option>medium</option><option>large</option></select></label>
+      <label>Distance (m)<input id="ad" type="number" min="1" value="50" style="width:90px"></label>
+      <label>Priority<select id="apr"><option value="1">1 VIP</option><option value="2">2 Emergency</option><option value="3" selected>3 Regular</option></select></label>
+      <button id="add">Add slot</button>
+    </div>
+    <div class="wrap"><table><thead><tr><th>Slot</th><th>Size</th><th>Distance</th><th>Priority</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+</main>
+</div>
+
+<script>
+const RANK={small:1,medium:2,large:3},PN={1:"VIP",2:"Emergency",3:"Regular"};
+const SEED=[["A1","small",10,3],["A2","medium",15,2],["A3","large",20,3],["A4","small",25,1],["B1","medium",30,3],["B2","large",35,2],["B3","small",40,3],["B4","medium",50,1],["C1","large",60,3],["C2","small",70,3],["C3","medium",80,3],["C4","large",90,1]];
+let slots=[],users={},bookings=[],me=null,hit=null;
+function load(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}
+function save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+async function hash(s){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("psa:"+s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+const $=id=>document.getElementById(id);
+async function init(){
+  slots=load("psa_slots",null)||SEED.map(([slot_id,size,distance,priority])=>({slot_id,size,distance,priority,available:true}));
+  users=load("psa_users",null)||{};
+  bookings=load("psa_bookings",null)||[];
+  const dh=await hash("admin123");if(users.admin&&users.admin.h===dh)delete users.admin;
+  save("psa_slots",slots);save("psa_users",users);save("psa_bookings",bookings);
+}
+function err(t){$("authErr").textContent=t}
+$("authForm").onsubmit=async e=>{e.preventDefault();const n=$("u").value.trim(),h=await hash($("p").value);
+  if(!users[n]||users[n].h!==h)return err("Wrong username or password.");
+  me={name:n,role:users[n].role};show()};
+$("forgotBtn").onclick=()=>{$("resetBox").hidden=false;$("resetUser").value=$("u").value.trim();$("resetPw").value="";$("resetPw2").value="";err("")};
+$("cancelReset").onclick=()=>{$("resetBox").hidden=true;err("")};
+$("resetForm").onsubmit=async e=>{e.preventDefault();
+  const n=$("resetUser").value.trim(),p1=$("resetPw").value,p2=$("resetPw2").value;
+  if(!users[n])return err("Username not found.");
+  if(p1.length<6)return err("New password must be at least 6 characters.");
+  if(p1!==p2)return err("Passwords do not match.");
+  users[n].h=await hash(p1);save("psa_users",users);$("resetBox").hidden=true;err("Password reset successfully. You can now log in.");
+};
+$("regBtn").onclick=async()=>{const n=$("u").value.trim(),pw=$("p").value;
+  if(!n||pw.length<6)return err("Enter a username and a password of 6+ characters.");
+  if(users[n])return err("That username is taken.");
+  const first=Object.keys(users).length===0;users[n]={h:await hash(pw),role:first?"admin":"user"};save("psa_users",users);err("Account created"+(first?" with admin access":"")+". Log in to continue.")};
+$("out").onclick=()=>{me=null;hit=null;$("app").hidden=true;$("auth").hidden=false;$("p").value="";err("")};
+function show(){
+  $("auth").hidden=true;$("app").hidden=false;$("who").textContent="Signed in as "+me.name+" ("+me.role+")";
+  $("hello").textContent="Welcome, "+me.name+". Request a slot";$("admin").hidden=me.role!=="admin";
+  const d=new Date();d.setDate(d.getDate()+1);$("bookDate").min=d.toISOString().slice(0,10);$("bookDate").value=$("bookDate").min;
+  render()
+}
+function fits(s,v){return s.available&&RANK[s.size]>=RANK[v]}
+function greedy(v){const L=[];let best=null;
+  slots.forEach(s=>{if(!s.available)L.push(s.slot_id+": taken, skip");else if(RANK[s.size]<RANK[v])L.push(s.slot_id+": "+s.size+" is too small, skip");
+    else{const b=!best||s.distance<best.distance;L.push(s.slot_id+": fits at "+s.distance+" m"+(b?" → new nearest":" → farther than "+best.slot_id));if(b)best=s}});
+  L.push(best?"Result: nearest fitting slot is "+best.slot_id:"No fitting slot is free.");return{best,L,n:slots.length}}
+function pq(v){const L=[],q=slots.filter(s=>fits(s,v)).sort((a,b)=>a.priority-b.priority||a.distance-b.distance);
+  q.forEach(s=>L.push("push "+s.slot_id+" (priority "+PN[s.priority]+", "+s.distance+" m)"));
+  const best=q[0]||null;L.push(best?"pop → "+best.slot_id+": highest priority, then nearest":"Queue empty: no fitting slot.");
+  return{best,L,n:q.length+(best?1:0)}}
+function bs(v){const L=[],S=[...slots].sort((a,b)=>a.distance-b.distance);L.push("Sorted by distance: "+S.map(s=>s.slot_id+"@"+s.distance).join(", "));
+  let ok=false;const pre=S.map(s=>ok=ok||fits(s,v));let lo=0,hi=S.length-1,ans=-1,c=0;
+  while(lo<=hi){const m=(lo+hi)>>1;c++;L.push("compare #"+c+": range ["+lo+","+hi+"], mid="+m+" ("+S[m].slot_id+") → "+(pre[m]?"a fitting slot exists at or before here, go left":"none fits up to here, go right"));
+    if(pre[m]){ans=m;hi=m-1}else lo=m+1}
+  const best=ans<0?null:S[ans];L.push(best?"Result: "+best.slot_id+" after "+c+" comparisons":"No fitting slot is free.");return{best,L,n:c}}
+const ALG={greedy,pq,bs},NAME={greedy:"Greedy",pq:"Priority queue",bs:"Binary search"};
+function trace(L){$("trace").innerHTML=L.map(x=>"<li>"+x.replace(/</g,"&lt;")+"</li>").join("")}
+const ICON={small:"🏍️",medium:"🚗",large:"🚚"};
+function esc(x){return String(x).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";")}
+$("size").onchange=()=>{$("vicon").textContent=ICON[$("size").value]};
+$("go").onclick=()=>{const v=$("size").value,a=$("algo").value,pl=$("plate").value.toUpperCase().replace(/[^A-Z0-9 -]/g,"").trim();
+  if(pl.length<4){$("msg").textContent="Enter your vehicle number (4+ letters or digits).";return}
+  if(slots.some(s=>!s.available&&s.plate===pl)){$("msg").textContent=pl+" is already parked.";return}
+  const r=ALG[a](v);trace(r.L);
+  if(r.best){Object.assign(r.best,{available:false,plate:pl,owner:me.name,vt:v});hit=r.best.slot_id;save("psa_slots",slots);$("msg").textContent="Allocated "+r.best.slot_id+" ("+NAME[a]+", "+r.n+" steps).";
+    $("ticket").hidden=false;$("ticket").innerHTML='<div class="ticket"><div class="big">'+ICON[v]+'</div><div><h2>Slot '+esc(r.best.slot_id)+' is yours, '+esc(me.name)+'</h2><span class="plate">'+esc(pl)+'</span><p style="margin:.5rem 0 0">'+r.best.distance+' m from the entrance · '+r.best.size+' slot · '+PN[r.best.priority]+' · found with '+NAME[a]+'. Follow the dashed route on the map.</p><div class="maplinks"><a href="https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(r.best.slot_id+" parking slot")+'" target="_blank" rel="noopener">Get directions in Google Maps</a></div></div></div>'}
+  else{hit=null;$("ticket").hidden=true;$("msg").textContent="No "+v+"-or-larger slot is free."}render()};
+$("cmp").onclick=()=>{const v=$("size").value,L=[];Object.keys(ALG).forEach(a=>{const r=ALG[a](v);L.push(NAME[a]+": "+(r.best?r.best.slot_id:"none")+" — "+r.n+" steps/comparisons")});
+  trace(L);$("msg").textContent="Comparison only. No slot was taken."};
+function openMaps(url){window.open(url,"_blank","noopener,noreferrer")}
+$("placeBtn").onclick=()=>{const q=$("placeSearch").value.trim();if(!q)return;$("mapLinks").innerHTML='<a href="https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q)+'" target="_blank" rel="noopener">Open "'+esc(q)+'" in Google Maps</a>'};
+$("trafficBtn").onclick=()=>openMaps("https://www.google.com/maps/@?api=1&map_action=map&zoom=13&basemap=roadmap&layer=traffic");
+$("nearbyBtn").onclick=()=>openMaps("https://www.google.com/maps/search/?api=1&query=parking+near+me");
+$("locationMapBtn").onclick=()=>{const q=$("bookLocation").value.trim();if(!q)return $("bookMsg").textContent="Enter a location first.";openMaps("https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q))};
+
+$("bookBtn").onclick=()=>{
+  const location=$("bookLocation").value.trim(),date=$("bookDate").value,time=$("bookTime").value,pl=$("bookPlate").value.toUpperCase().replace(/[^A-Z0-9 -]/g,"").trim(),v=$("bookSize").value;
+  if(!location)return $("bookMsg").textContent="First enter the parking location/locality where you want to book the slot.";
+  if(!date||!time)return $("bookMsg").textContent="Select a future date and time.";
+  const when=new Date(date+"T"+time),now=new Date();
+  if(isNaN(when)||when<=now)return $("bookMsg").textContent="Booking time must be in the future.";
+  if(pl.length<4)return $("bookMsg").textContent="Enter a vehicle number (4+ letters or digits).";
+  const duplicate=bookings.some(b=>b.user===me.name&&b.status==="Booked"&&b.date===date&&b.time===time&&b.plate===pl);
+  if(duplicate)return $("bookMsg").textContent="This vehicle already has a booking at that time.";
+  const candidates=slots.filter(s=>s.available&&RANK[s.size]>=RANK[v]&&!bookings.some(b=>b.status==="Booked"&&b.slot_id===s.slot_id&&b.date===date&&b.time===time))
+    .sort((a,b)=>a.priority-b.priority||a.distance-b.distance);
+  if(!candidates.length)return $("bookMsg").textContent="No suitable slot is available for that date and time.";
+  const s=candidates[0];
+  bookings.push({id:Date.now()+"-"+Math.random().toString(36).slice(2),user:me.name,location,slot_id:s.slot_id,date,time,plate:pl,vt:v,status:"Booked"});
+  save("psa_bookings",bookings);$("bookMsg").textContent="Slot "+s.slot_id+" at "+location+" booked for "+date+" at "+time+".";renderBookings()
+};
+
+window.cancelBooking=id=>{
+  const b=bookings.find(x=>x.id===id);if(!b)return;
+  if(b.user!==me.name&&me.role!=="admin")return;
+  b.status="Cancelled";save("psa_bookings",bookings);renderBookings()
+};
+
+function renderBookings(){
+  const mine=bookings.filter(b=>me&& (b.user===me.name||me.role==="admin")).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  $("bookings").innerHTML=mine.map(b=>'<tr><td>'+esc(b.location||"Not specified")+'</td><td>'+esc(b.date)+'</td><td>'+esc(b.time)+'</td><td>'+esc(b.plate)+'</td><td>'+esc(b.slot_id)+'</td><td><span class="badge">'+esc(b.status)+'</span></td><td>'+(b.status==="Booked"?'<button class="ghost" onclick="cancelBooking(\''+esc(b.id)+'\')">Cancel</button>':"—")+'</td></tr>').join("")||'<tr><td colspan="7">No bookings yet.</td></tr>'
+}
+
+$("rel").onclick=()=>{slots.forEach(s=>{s.available=true;delete s.plate;delete s.owner;delete s.vt});hit=null;$("ticket").hidden=true;save("psa_slots",slots);$("msg").textContent="All slots are free.";render()};
+$("add").onclick=()=>{const id=$("aid").value.trim();if(!id||slots.some(s=>s.slot_id===id)){$("msg").textContent="Enter a unique slot ID.";return}
+  slots.push({slot_id:id,size:$("asz").value,distance:+$("ad").value,priority:+$("apr").value,available:true});save("psa_slots",slots);$("aid").value="";render()};
+function render(){
+  $("lot").innerHTML=mapSvg();
+  renderBookings();
+  $("parked").innerHTML=slots.filter(s=>!s.available).map(s=>"<tr><td>"+ICON[s.vt||"medium"]+'</td><td><span class="plate">'+esc(s.plate||"—")+"</span></td><td>"+esc(s.slot_id)+"</td><td>"+esc(s.owner||"—")+"</td><td>"+((me.role==="admin"||s.owner===me.name)?'<button class="ghost" onclick="freeSlot(\''+esc(s.slot_id)+'\')">Release</button>':"")+"</td></tr>").join("")||'<tr><td colspan="5">No vehicles parked yet.</td></tr>';
+  $("rows").innerHTML=slots.map((s,i)=>"<tr><td>"+s.slot_id+"</td><td>"+s.size+"</td><td>"+s.distance+" m</td><td>"+PN[s.priority]+'</td><td><button class="ghost" onclick="del('+i+')">Remove</button></td></tr>').join("")}
+window.freeSlot=id=>{const s=slots.find(x=>x.slot_id===id);if(!s)return;s.available=true;delete s.plate;delete s.owner;delete s.vt;if(hit===id)hit=null;save("psa_slots",slots);render()};
+function mapSvg(){const n=slots.length,cols=Math.max(1,Math.ceil(n/2)),sp=820/cols,w=sp-10,S=slots.slice().sort((a,b)=>a.distance-b.distance);let g='<rect class="m-road" x="50" y="120" width="850" height="60"/><line x1="55" y1="150" x2="895" y2="150" stroke="#fff" stroke-width="2" stroke-dasharray="14 10"/><text x="6" y="146" font-size="26">🚪</text><text x="4" y="170" class="sm">Entrance</text>',r="";
+  S.forEach((s,i)=>{const side=i%2,x=75+(i>>1)*sp,y=side?185:35,c=s.slot_id===hit?"m-hit":s.available?"m-free":"m-busy",cx=x+w/2;
+    g+='<rect class="'+c+'" x="'+x+'" y="'+y+'" width="'+w+'" height="80" rx="6"/><text x="'+cx+'" y="'+(y+18)+'" text-anchor="middle" class="t">'+esc(s.slot_id)+'</text><text x="'+cx+'" y="'+(y+46)+'" text-anchor="middle" font-size="24">'+(s.available?ICON[s.size]:ICON[s.vt||"medium"])+'</text><text x="'+cx+'" y="'+(y+68)+'" text-anchor="middle" class="sm">'+(s.available?s.distance+" m":esc(s.plate||"taken"))+'</text>';
+    if(s.slot_id===hit)r='<path d="M40 150 L'+cx+' 150 L'+cx+' '+(side?185:120)+'" fill="none" stroke="#0b5fa5" stroke-width="4" stroke-dasharray="8 6"/><circle cx="40" cy="150" r="6" fill="#0b5fa5"/>'});
+  return '<svg viewBox="0 0 900 300" role="img" aria-label="Map of the parking lot">'+g+r+'</svg>'}
+window.del=i=>{slots.splice(i,1);save("psa_slots",slots);render()};
+init();
+</script>
+</body>
+</html>
